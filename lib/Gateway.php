@@ -19,7 +19,7 @@ class Crypto_Gateway extends Model
 	private $accepted_info = array(); //stores any info for tokens being accepted for gateway
 	private $btc_data = array('issuer' => false, 'supply' => 2100000000000000, 'description' => false,
 							  'locked' => true, 'divisible' => true, 'asset' => 'BTC', 'call_date' => false,
-							  'owner' => false, 'call_price' => false, 'callable' => false);
+							  'owner' => false, 'call_price' => false, 'callable' => false); //don't change this!
 	private $ignore_tx = array();
 	
 	/**
