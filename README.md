@@ -117,3 +117,11 @@ php crypto-gateway.php ignore <transaction ID>
 
 As this is mostly a proof of concept still, it hasn't had much testing or been fleshed out much. However, you should be able to create copies of "crypto-gateway.php" and change parameters etc. as needed and run them all simultaneously. They can all use the same database. 
 
+### To do
+
+* Improve setup
+* Make it easier to run multiple gateways
+* Finish support for some of the extra options such as custom dust size and miner fee, min confirms etc.
+* Add in support for exchange rates based on price feeds
+* Support for refunds / rejecting transactions
+* +more!
