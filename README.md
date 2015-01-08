@@ -189,8 +189,9 @@ $gateways = array(
 
 ### To do
 
-* Improve setup
-* Finish support for some of the extra options such as custom dust size and miner fee, min confirms etc.
-* Add in support for exchange rates based on price feeds
-* Support for refunds / rejecting transactions
-* +more!
+* Implement custom miner fees, dust outputs and btc dust limit restrictions
+* Add in options for min/max amounts on a per token/accepted token basis
+* Create ability to send both partial (i.e, change) and full refunds
+* Create a front end status page that can be loaded in browser to monitor status of wallet and all gateways etc.
+* Abiity to create automated price broadcasts
+
