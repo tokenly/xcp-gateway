@@ -32,9 +32,6 @@ class Crypto_Gateway extends Model
 	{
 		parent::__construct();
 		$this->token = strtoupper($token);
-		foreach($accepted as $k => $v){
-			$accepted[strtoupper($k)] = floatval($v);
-		}
 		$this->accepted = $accepted;
 		$this->source_address = $source;
 		$this->watch_address = $source;
@@ -54,7 +51,7 @@ class Crypto_Gateway extends Model
 		$this->verifySources(); //check source and watch address
 		$this->grabTokenInfo(); //get info for any relevant tokens		
 		
-		echo "[".$token."] constructed \n";
+		echo "[".$token."] constructed - ".$this->watch_address." \n";
 	}
 	
 	/**
@@ -119,6 +116,9 @@ class Crypto_Gateway extends Model
 			
 			//check accepted token info
 			foreach($this->accepted as $token => $rate){
+				if(is_array($rate)){
+					$rate = $this->getLatestRate($rate);
+				}
 				if($rate <= 0){
 					throw new Exception($token." exchange rate must be > 0");
 				}
@@ -135,13 +135,11 @@ class Crypto_Gateway extends Model
 						break;
 				}
 			}
-			
 		}
 		catch(Exception $e){
 			echo "Error obtaining asset info: ".$e->getMessage()."\n";
 			die();
 		}		
-		
 	}
 	
 	protected function getIncomingSends()
@@ -198,6 +196,9 @@ class Crypto_Gateway extends Model
 				//prep info for list of pending sends
 				$asset = $send['asset'];
 				$rate = $accepted[$asset];
+				if(is_array($rate)){
+					$rate = $this->getLatestRate($rate);
+				}				
 				$quantity = $send['quantity'];
 				if($this->accepted_info[$asset]['divisible']){
 					$quantity = $quantity / SATOSHI_MOD;
@@ -233,7 +234,9 @@ class Crypto_Gateway extends Model
 	protected function getBitcoinSends($vend_token, $rate, $noFee = false)
 	{
 		$sendsFound = array();
-		
+		if(is_array($rate)){
+			$rate = $this->getLatestRate($rate);
+		}		
 		//also check BTC balances, just use blockr.io
 		if(!isset($this->get_api) OR !$this->get_api){
 			$api_url = 'http://btc.blockr.io/api/v1/address/txs/';
@@ -472,7 +475,7 @@ class Crypto_Gateway extends Model
 		
 	}
 	
-	private function getSourceTokenSends()
+	protected function getSourceTokenSends()
 	{
 		//check transactions again for two-way vending functionality
 		//vends out the first token in the "accepted" list
@@ -484,6 +487,9 @@ class Crypto_Gateway extends Model
 		$firstRate = false;
 		$firstToken = '';
 		foreach($this->accepted as $accept => $rate){
+			if(is_array($rate)){
+				$rate = $this->getLatestRate($rate);
+			}			
 			$firstRate = $rate;
 			$firstToken = $accept;
 			break;
@@ -503,7 +509,7 @@ class Crypto_Gateway extends Model
 		return $sends;
 	}
 	
-	private function getLatestSupply($token){
+	protected function getLatestSupply($token){
 		$info = $this->xcp->get_asset_info(array('assets' => array($token)));
 		if(is_array($this->info)){
 			$this->accepted_info[$token]['supply'] = $info[0]['supply'];
@@ -514,7 +520,7 @@ class Crypto_Gateway extends Model
 		return $info[0]['supply'];
 	}
 	
-	private function autoInflateToken($token, $needed = 0)
+	protected function autoInflateToken($token, $needed = 0)
 	{
 		//create a new token issuance
 		$supply = $this->getlatestSupply($token);
@@ -575,7 +581,7 @@ class Crypto_Gateway extends Model
 		return true;
 	}
 	
-	private function checkPendingIssuances()
+	protected function checkPendingIssuances()
 	{
 		$getItems = $this->getAll('issuances', array('source' => $this->source_address, 'complete' => 0));
 		if(count($getItems) == 0){
@@ -604,7 +610,7 @@ class Crypto_Gateway extends Model
 		return true;
 	}
 	
-	private function checkPendingSends()
+	protected function checkPendingSends()
 	{
 		$getItems = $this->getAll('transactions', array('source' => $this->source_address, 'confirmed' => 0, 'type' => 'gateway_send'));
 		if(count($getItems) == 0){
@@ -628,5 +634,85 @@ class Crypto_Gateway extends Model
 			return false;
 		}
 		return true;
+	}
+	
+	protected function getLatestRate($rate)
+	{
+		switch($rate['type']){
+			case 'fixed':
+				$rate = $rate['value'];
+				break;
+			case 'function':
+				$rate = $rate['function']();
+				break;
+			case 'feed':
+				$ch = curl_init();
+				$curlFeed = array(CURLOPT_URL => $rate['endpoint'],
+								  CURLOPT_RETURNTRANSFER => true);
+				if(isset($rate['method']) AND $rate['method'] == 'POST'){
+					$curlFeed[CURLOPT_POST] = true;
+					if(isset($rate['data'])){
+						$curlFeed[CURLOPT_POSTFIELDS] = $rate['data'];
+					}								
+				}
+				else{
+					if(isset($rate['data'])){
+						$curlFeed[CURLOPT_URL] .= '?'.http_build_query($rate['data']);
+					}
+				}
+				curl_setopt_array($ch, $curlFeed);
+				$getFeed = curl_exec($ch);
+
+				if(!$getFeed){
+					throw new Exception('Failed getting rate for '.$token);
+				}
+				
+				$decode = json_decode($getFeed, true);
+				
+				$expField = explode('.', $rate['field']);
+				$numLevels = count($expField);
+				$lastField = false;
+				for($i = 0; $i < $numLevels; $i++){
+					if($i == 0){
+						if(isset($decode[$expField[$i]])){
+							$lastField = $decode[$expField[$i]];
+						}
+						else{
+							throw new Exception('Field for '.$token.' rate not found: '.$expField[$i]);
+						}
+					}
+					else{
+						if(isset($lastField[$expField[$i]])){
+							$lastField = $lastField[$expField[$i]];
+						}
+						else{
+							throw new Exception('Field for '.$token.' rate not found: '.$expField[$i]);
+						}
+					}
+				}
+				if(!$lastField){
+					throw new Exception('Field for '.$token.' rate not found: '.$rate['field']);
+				}
+				
+				$rate = $lastField;
+				break;
+			case 'broadcast':
+				$getBroadcast = $this->xcp->get_broadcasts(array('filters' => 
+																	array('field' => 'source',
+																		  'op' => '==',
+																		  'value' => $rate['source'],
+																		  'limit' => 100,
+																		  'order_by' => 'block_index',
+																		  'order_dir' => 'DESC')));
+				foreach($getBroadcast as $cast){
+					if($cast['text'] == $rate['text'] AND $cast['status'] == 'valid'){
+						$rate = $cast['value'];
+						break;
+					}
+				}
+				break;
+		}
+		
+		return floatval($rate);
 	}
 }

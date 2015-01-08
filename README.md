@@ -9,8 +9,9 @@ This prototype is intended for command line use only, there is no GUI or web int
 
 ##Features
 
-* Send and receive both bitcoin and counterparty assets based on defined exchange rates
+* Send and receive both bitcoin and counterparty assets based on fixed or dynamic exchange rates
 * Accept multiple tokens at different exchange rates
+* Dynamic exchange rates which can be sourced from a custom function, an API request (JSON) or a feed broadcasted on the blockchain.
 * Ability to automatically issue new tokens when the local supply runs out (requires source address to have ownership of the token in question)
 * Customizable fees and other options
 * Support for multiple gateways running simultaneously
@@ -61,6 +62,44 @@ The first argument in this function is your **source address**, which is the add
 The second argument is the name of the primary token used by the vending machine, and can be either BTC, XCP or any Counterparty token. This is the main token that will be sent out after incoming transactions are confirmed.
 
 The third argument is an array of which tokens are accepted and what the exchange rate is for them. In this default example, both regular BTC as well as the token "XBTC" are accepted for incoming transactions, with both of them having an equal 1:1 exchange rate. If ```'BTC' => 1 ``` was changed to ```'BTC' => 1000```, then sending 1 Bitcoin would cause 1,000 BITCOINEX to be vended out.
+
+Exchange rates can be at a fixed rate, however if you set your rate to an array with a "type" field, you can create dynamic exchange rates which are updated each time transactions are checked for etc. 
+There are 4 types of exchange rate sources; "fixed" (just a basic number), "feed" (an API request in JSON format), "broadcast" (a price feed broadcasted via counterparty on the blockchain) and "function" (allows you to create a custom function for calculating price)
+
+Below is an example setup for each type of dynamic exchange rate:
+
+```
+	'WALMART' => function(){
+		$accepted = array(
+		/* JSON API Feed pricing example */
+		 'BTC' => 
+			array('type' => 'feed',
+				  'endpoint' => 'https://api.bitcoinaverage.com/ticker/global/USD/',
+				  'field' => 'last', //if needing to go multiple levels deep into the response array, use format "parentfield.child.child2"
+				  'method' => 'GET', //optional, can be GET or POST
+				  'data' => array()), //optional extra data to send with request
+		/* Custom function pricing example */
+		 'BITCOINEX' => 
+			 array('type' => 'function',
+				   'function' => function(){
+					   $price = mt_rand(1,42) * 3.14;
+					   return $price;
+					}),
+		/* Fixed rate pricing, same as just using a number instead of an array */
+		 'LTBCOIN' =>
+			 array('type' => 'fixed',
+				   'value' => 15),
+		/* Blockchain broadcast pricing example */
+		 'FLDC' => 
+			 array('type' => 'broadcast',
+				   'source' => '15fx1Gqe4KodZvyzN6VUSkEmhCssrM1yD7',
+				   'text' => 'TESTPRICE') //broadcast name/text to look for
+		);		
+		$gateway = new Crypto_Gateway('1KXASZPH6bDCNxYsYnfWMjVntCh5n76daY', 'WALMART', $accepted);
+
+		return $gateway;
+	},	
+```
 
 If you would like to have different addresses for receiving and sending transactions, you may add in the following line of code:  
 ``` $gateway->watch_address = 'MY_WATCH_ADDRESS'; ```
