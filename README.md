@@ -13,6 +13,7 @@ This prototype is intended for command line use only, there is no GUI or web int
 * Accept multiple tokens at different exchange rates
 * Ability to automatically issue new tokens when the local supply runs out (requires source address to have ownership of the token in question)
 * Customizable fees and other options
+* Support for multiple gateways running simultaneously
 
 ##Requirements
 
@@ -31,7 +32,7 @@ This prototype is intended for command line use only, there is no GUI or web int
 
 To setup your vending machine(s), edit **conf/gateways.php**
 
-Specifically, you will want to edit this section:
+Here is a basic example of a gateway config file: 
 
 ```
 $gateways = array(
