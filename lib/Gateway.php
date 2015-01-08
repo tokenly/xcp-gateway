@@ -30,7 +30,6 @@ class Crypto_Gateway extends Model
 	 * */
 	function __construct($source, $token, $accepted = array('BTC' => 1))
 	{
-		echo "Constructing gateway [".$token." - ".$source."]...\n";
 		parent::__construct();
 		$this->token = strtoupper($token);
 		foreach($accepted as $k => $v){
@@ -51,6 +50,11 @@ class Crypto_Gateway extends Model
 		if($token != 'BTC'){
 			$this->inflatable_tokens[] = $token;
 		}
+		
+		$this->verifySources(); //check source and watch address
+		$this->grabTokenInfo(); //get info for any relevant tokens		
+		
+		echo "[".$token."] constructed \n";
 	}
 	
 	/**
@@ -59,35 +63,25 @@ class Crypto_Gateway extends Model
 	 * */
 	public function init()
 	{
-		echo "Beginning Initilization\n";
-		$this->verifySources(); //check source and watch address
-		$this->grabTokenInfo(); //get info for any relevant tokens
-		
-		echo "Gateway in progress \n";
-		//start the loop
-		while(true){
-			$pendingIssuance = false;
-			if($this->auto_inflate AND count($this->inflatable_tokens) > 0){
-				$pendingIssuance = $this->checkPendingIssuances(); //if inflation enabled, check if any issuances are pending
-			}
-			
-			$pendingSends = $this->checkPendingSends();
-			
-			if(!$pendingIssuance AND !$pendingSends){
-				$sendsFound = $this->getIncomingSends(); //get list of incoming transactions
-				if(count($sendsFound) > 0){
-					echo "Sends found: ".count($sendsFound)."\n";
-					$this->vend($sendsFound); //process sends
-				}
-			}
-			
-			//reset BTC and XCP transaction lists for next interval
-			$this->get_api = false;
-			$this->get_xcp = false;
-			
-			//wait a few minutes
-			sleep(60);
+		$pendingIssuance = false;
+		if($this->auto_inflate AND count($this->inflatable_tokens) > 0){
+			$pendingIssuance = $this->checkPendingIssuances(); //if inflation enabled, check if any issuances are pending
 		}
+		
+		$pendingSends = $this->checkPendingSends();
+		
+		if(!$pendingIssuance AND !$pendingSends){
+			$sendsFound = $this->getIncomingSends(); //get list of incoming transactions
+			if(count($sendsFound) > 0){
+				echo "Sends found: ".count($sendsFound)."\n";
+				$this->vend($sendsFound); //process sends
+			}
+		}
+		
+		//reset BTC and XCP transaction lists for next interval
+		$this->get_api = false;
+		$this->get_xcp = false;
+		
 	}
 	
 	private function verifySources()
@@ -115,8 +109,6 @@ class Crypto_Gateway extends Model
 					break;
 				default:
 					//xcp based token
-					$assetObj = new stdClass;
-					$assetObj->assets = array($this->token);
 					$this->token_info = $this->xcp->get_asset_info(array('assets' => array($this->token)));
 					if(is_array($this->token_info)){
 						$this->token_info = $this->token_info[0];
@@ -511,10 +503,21 @@ class Crypto_Gateway extends Model
 		return $sends;
 	}
 	
+	private function getLatestSupply($token){
+		$info = $this->xcp->get_asset_info(array('assets' => array($token)));
+		if(is_array($this->info)){
+			$this->accepted_info[$token]['supply'] = $info[0]['supply'];
+		}
+		if($this->token == $token){
+			$this->token_info['supply'] = $this->accepted_info[$token]['supply'];
+		}
+		return $info[0]['supply'];
+	}
+	
 	private function autoInflateToken($token, $needed = 0)
 	{
 		//create a new token issuance
-		$supply = $this->accepted_info[$token]['supply'];
+		$supply = $this->getlatestSupply($token);
 		if($this->accepted_info[$token]['divisible']){
 			$supply = $supply / SATOSHI_MOD;
 		}
@@ -588,6 +591,8 @@ class Crypto_Gateway extends Model
 					if($update){
 						echo "Issuance complete: ".$item['amount']." ".$item['asset']." ".timestamp()."\n";
 						$incomplete--;
+						//lets wait a minute to avoid duplicate issuances
+						wait(60);
 					}
 				}
 			}

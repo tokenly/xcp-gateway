@@ -29,17 +29,25 @@ This prototype is intended for command line use only, there is no GUI or web int
 * Create a new MySQL database and import "db.sql"
 * Edit conf/config.php and fill out all the appropriate information
 
-To setup your vending machine, you will first want to edit "crypto-gateway.php" (this process will be improved later)
+To setup your vending machine(s), edit **conf/gateways.php**
 
 Specifically, you will want to edit this section:
 
 ```
-	$gateway = new Crypto_Gateway('1CoinEXLQtivDjckWMRBbhgVJk9RdwdYbR', 'BITCOINEX', array('BTC' => 1, 'XBTC' => 1));
-	$gateway->allow_two_way = true;
-	$gateway->auto_inflate = true;
-	$gateway->inflation_mode = 'as_needed';
-	$gateway->inflation_modifier = 1;
+$gateways = array(
+	'BITCOINEX' => function(){
+		$gateway = new Crypto_Gateway('1CoinEXLQtivDjckWMRBbhgVJk9RdwdYbR', 'BITCOINEX', array('BTC' => 1, 'XBTC' => 1));
+		$gateway->allow_two_way = true;
+		$gateway->auto_inflate = true;
+		$gateway->inflation_mode = 'as_needed';
+		$gateway->inflation_modifier = 1;
+		return $gateway;
+	},
+);
+
 ```
+
+To create multiple gateways, just add more entries into the $gateways array using the same format.
 
 Let's break this down line by line.
 
@@ -115,12 +123,33 @@ php crypto-gateway.php ignore <transaction ID>
 
 **Running Multiple Gateways**
 
-As this is mostly a proof of concept still, it hasn't had much testing or been fleshed out much. However, you should be able to create copies of "crypto-gateway.php" and change parameters etc. as needed and run them all simultaneously. They can all use the same database. 
+The system can run multiple gateways at the same time. All you need to do is edit conf/gateways.php and add in additional entries to the ```$gateways``` array.
+
+Example of multi-gateway setup:
+
+```
+
+$gateways = array(
+	'BITCOINEX' => function(){
+		$gateway = new Crypto_Gateway('1CoinEXLQtivDjckWMRBbhgVJk9RdwdYbR', 'BITCOINEX', array('BTC' => 1, 'XBTC' => 1));
+		$gateway->allow_two_way = true;
+		$gateway->auto_inflate = true;
+		$gateway->inflation_mode = 'as_needed';
+		$gateway->inflation_modifier = 1;
+		return $gateway;
+	},
+	'MYTOKEN' => function(){
+		$gateway = new Crypto_Gateway('1NEmcJtFYybrLKohvVaz17rtTUaDHoc3ym', 'MYTOKEN', array('BITCOINEX' => 1000));
+		return $gateway;
+	},
+);
+
+
+```
 
 ### To do
 
 * Improve setup
-* Make it easier to run multiple gateways
 * Finish support for some of the extra options such as custom dust size and miner fee, min confirms etc.
 * Add in support for exchange rates based on price feeds
 * Support for refunds / rejecting transactions
