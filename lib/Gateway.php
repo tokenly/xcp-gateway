@@ -533,7 +533,7 @@ class Crypto_Gateway extends Model
 	
 	protected function getLatestSupply($token){
 		$info = $this->xcp->get_asset_info(array('assets' => array($token)));
-		if(is_array($this->info)){
+		if(is_array($info)){
 			$this->accepted_info[$token]['supply'] = $info[0]['supply'];
 		}
 		if($this->token == $token){
