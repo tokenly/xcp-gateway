@@ -14,6 +14,7 @@ class Crypto_Gateway extends Model
 	public $inflation_mode = 'as_needed'; //options: fixed, percent, as_needed
 	public $inflation_modifier = 1; //modifier that effects how many new tokens are created per issuance, depending on mode
 	public $inflatable_tokens = array(); //list of tokens which can be auto-issued
+	public $source_pubkey = false; //leave false to auto attempt to get the pubkey of the source address
 	
 	private $token_info = false; //stores info such as divisibility etc. of main source token
 	private $accepted_info = array(); //stores any info for tokens being accepted for gateway
@@ -21,6 +22,7 @@ class Crypto_Gateway extends Model
 							  'locked' => true, 'divisible' => true, 'asset' => 'BTC', 'call_date' => false,
 							  'owner' => false, 'call_price' => false, 'callable' => false); //don't change this!
 	private $ignore_tx = array();
+	
 	
 	/**
 	 * @param $source (string) - bitcoin address to use as source vending address
@@ -92,6 +94,25 @@ class Crypto_Gateway extends Model
 		if(!$verify->checkAddress($this->watch_address)){
 			echo "Error: Invalid watch address!\n";
 			die();
+		}
+		
+		if(!$this->source_pubkey){
+			//get pubkey for source address
+			try{
+				$validate = $this->btc->validateaddress($this->source_address);
+				if(!$validate OR !$validate['ismine']){
+					throw new Exception('Address not from this wallet');
+				}
+				$this->source_pubkey = $validate['pubkey'];
+			}
+			catch(Exception $e){
+				echo 'Error getting source address ['.$this->source_address.'] pubkey:'. $e->getMessage()."\n";
+				die();
+			}
+			if(!$this->source_pubkey){
+				echo "Could not get source address pubkey [".$this->source_address."]\n";
+				die();
+			}
 		}
 	}
 	
@@ -427,7 +448,8 @@ class Crypto_Gateway extends Model
 						//send out counterparty tokens
 						$quantity = round($send['amount'] * SATOSHI_MOD);
 						$sendData = array('source' => $this->source_address, 'destination' => $send['send_to'],
-										  'asset' => $send['vend_token'], 'quantity' => $quantity, 'allow_unconfirmed_inputs' => true);
+										  'asset' => $send['vend_token'], 'quantity' => $quantity, 'allow_unconfirmed_inputs' => true,
+										  'pubkey' => $this->source_pubkey);
 				
 						$getRaw = $this->xcp->create_send($sendData);
 						$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
