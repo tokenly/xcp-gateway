@@ -193,5 +193,9 @@ $gateways = array(
 * Add in options for min/max amounts on a per token/accepted token basis
 * Create ability to send both partial (i.e, change) and full refunds
 * Create a front end status page that can be loaded in browser to monitor status of wallet and all gateways etc.
-* Abiity to create automated price broadcasts
+* Abiity to create automated price broadcasts (or custom broadcast function)
+* Ability to create primary token vending limits (e.g only allow a max of 10 BITCOINEX to be vended out per day)
+* Add in a basic API that can serve results for current token price, limits, fees, reserves, overall supply etc. 
+* Webhooks, so that an API endpoint can be called whenever a token is received, vended out, gateway runs out of tokens etc.
+* Ability to auto forward received tokens / BTC to another address on set intervals (e.g send all income to X address once a week)
 
