@@ -580,7 +580,7 @@ class Crypto_Gateway extends Model
 		}				
 		
 		$issueData = array('source' => $this->source_address, 'quantity' => $newTokens,
-						   'asset' => $token, 'allow_unconfirmed_inputs' => true);
+						   'asset' => $token, 'allow_unconfirmed_inputs' => true, 'description' => $this->token_info['description']);
 						   
 		$getRaw = $this->xcp->create_issuance($issueData);
 		$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
@@ -620,7 +620,7 @@ class Crypto_Gateway extends Model
 						echo "Issuance complete: ".$item['amount']." ".$item['asset']." ".timestamp()."\n";
 						$incomplete--;
 						//lets wait a minute to avoid duplicate issuances
-						wait(60);
+						sleep(60);
 					}
 				}
 			}
