@@ -6,7 +6,11 @@
 				echo "Error: Please include a transaction ID \n";
 				die();
 			}
-			
+			$get = $model->get('ignore_tx', $argv[2], array(), 'txId');
+			if($get){
+				echo "Transaction already being ignored \n";
+				die();
+			}
 			$add = $model->insert('ignore_tx', array('txId' => $argv[2]));
 			if(!$add){
 				echo "Error adding transaction to ignore list \n";
@@ -15,6 +19,38 @@
 			else{
 				echo "Transaction added to ignore list!\n";
 			}
+			break;
+		case 'ignoreall':
+			if(!isset($argv[2])){
+				echo "Error: Please include a bitcoin address \n";
+				die();
+			}
+			
+			$validate = new BTCValidate;
+			if(!$validate->checkAddress($argv[2])){
+				echo "Invalid bitcoin address \n";
+				die();
+			}
+			
+			$api_url = 'http://btc.blockr.io/api/v1/address/txs/';
+			$get_api = json_decode(file_get_contents($api_url.$argv[2]), true);
+			$added = 0;
+			foreach($get_api['data']['txs'] as $tx){
+			$get = $model->get('ignore_tx', $tx['tx'], array(), 'txId');
+				if($get){
+					continue;
+				}
+				$add = $model->insert('ignore_tx', array('txId' => $tx['tx']));
+				if(!$add){
+					echo "Error adding transaction to ignore list [".$tx['tx']."] \n";
+					continue;
+				}
+				else{
+					echo "Transaction added to ignore list! [".$tx['tx']."] \n";
+					$added++;
+				}
+			}
+			echo $added." transactions ignored \n";
 			break;
 		case 'stats':
 			$getList = $model->getAll('transactions');

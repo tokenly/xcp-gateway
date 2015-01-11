@@ -580,7 +580,7 @@ class Crypto_Gateway extends Model
 		}				
 		
 		$issueData = array('source' => $this->source_address, 'quantity' => $newTokens,
-						   'asset' => $token, 'allow_unconfirmed_inputs' => true, 'description' => $this->token_info['description']);
+						   'asset' => $token, 'allow_unconfirmed_inputs' => true, 'description' => $this->accepted_info[$token]['description']);
 						   
 		$getRaw = $this->xcp->create_issuance($issueData);
 		$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
@@ -722,10 +722,10 @@ class Crypto_Gateway extends Model
 				$getBroadcast = $this->xcp->get_broadcasts(array('filters' => 
 																	array('field' => 'source',
 																		  'op' => '==',
-																		  'value' => $rate['source'],
-																		  'limit' => 100,
-																		  'order_by' => 'block_index',
-																		  'order_dir' => 'DESC')));
+																		  'value' => $rate['source']),
+																  'limit' => 100,
+																  'order_by' => 'block_index',
+																  'order_dir' => 'DESC'));
 				foreach($getBroadcast as $cast){
 					if($cast['text'] == $rate['text'] AND $cast['status'] == 'valid'){
 						$rate = $cast['value'];
