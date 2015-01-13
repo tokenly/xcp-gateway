@@ -189,7 +189,7 @@ $gateways = array(
 
 ### To do
 
-* Implement custom miner fees, dust outputs and btc dust limit restrictions
+* Implement btc dust limit restrictions
 * Add in options for min/max amounts on a per token/accepted token basis
 * Create ability to send both partial (i.e, change) and full refunds
 * Create a front end status page that can be loaded in browser to monitor status of wallet and all gateways etc.

@@ -6,8 +6,8 @@ class Crypto_Gateway extends Model
 	public $watch_address = false; //defaults to source address, but can be manually changed
 	public $min_btc = 0.000055; //BTC dust limit, used mostly for if source token is just BTC
 	public $min_confirms = 1; //Min number of confirms before vending out token
-	public $miner_fee = 0.0001; //BTC miners fee
-	public $dust_size = 0.000055; //size to use for each dust output
+	public $miner_fee = 0.00005; //BTC miners fee for xcp transaction
+	public $dust_size = 0.000055; //size to use for each dust output on xcp transactions
 	public $service_fee = 0.5; //% fee to take off any incoming tokens
 	public $allow_two_way = false; //set to true to allow two-way vending
 	public $auto_inflate = false; //set to true to have it automatically issue new tokens when it runs out
@@ -15,6 +15,7 @@ class Crypto_Gateway extends Model
 	public $inflation_modifier = 1; //modifier that effects how many new tokens are created per issuance, depending on mode
 	public $inflatable_tokens = array(); //list of tokens which can be auto-issued
 	public $source_pubkey = false; //leave false to auto attempt to get the pubkey of the source address
+	public $gateway_title = false;
 	
 	private $token_info = false; //stores info such as divisibility etc. of main source token
 	private $accepted_info = array(); //stores any info for tokens being accepted for gateway
@@ -30,7 +31,7 @@ class Crypto_Gateway extends Model
 	 * @param $accepted (array) - array of input tokens that can be accepted in format (Token => Exchange Ratio)
 	 * 
 	 * */
-	function __construct($source, $token, $accepted = array('BTC' => 1))
+	function __construct($source, $token, $accepted = array('BTC' => 1), $title = false)
 	{
 		parent::__construct();
 		$this->token = strtoupper($token);
@@ -53,7 +54,13 @@ class Crypto_Gateway extends Model
 		$this->verifySources(); //check source and watch address
 		$this->grabTokenInfo(); //get info for any relevant tokens		
 		
-		echo "[".$token."] constructed - ".$this->watch_address." \n";
+		//set a title for this gateway.. not particularly important
+		$this->gateway_title = $title;
+		if(!$title){
+			$this->gateway_title = $token;
+		}
+		
+		echo "[".$this->gateway_title."] constructed - ".$this->watch_address." \n";
 	}
 	
 	/**
@@ -441,6 +448,7 @@ class Crypto_Gateway extends Model
 				switch($send['vend_token']){
 					case 'BTC':
 						echo "Sending BTC TX\n";
+						$this->btc->settxfee($this->miner_fee);
 						$sendTX = $this->btc->sendfromaddress($this->source_address, $send['amount'], $send['send_to']);
 						break;
 					default:
@@ -449,7 +457,11 @@ class Crypto_Gateway extends Model
 						$quantity = round($send['amount'] * SATOSHI_MOD);
 						$sendData = array('source' => $this->source_address, 'destination' => $send['send_to'],
 										  'asset' => $send['vend_token'], 'quantity' => $quantity, 'allow_unconfirmed_inputs' => true,
-										  'pubkey' => $this->source_pubkey);
+										  'pubkey' => $this->source_pubkey,
+										  'fee' => ($this->miner_fee * SATOSHI_MOD),
+										  'regular_dust_size' => (($this->dust_size / 2) * SATOSHI_MOD),
+										  'multisig_dust_size' => (($this->dust_size / 2) * SATOSHI_MOD)
+										  );
 				
 						$getRaw = $this->xcp->create_send($sendData);
 						$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));

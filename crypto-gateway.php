@@ -23,7 +23,7 @@ if(!isset($argv[1])){
 			$gateway->init();
 		}
 		//wait a few minutes before running the loop again
-		sleep(60);
+		sleep(300);
 	}
 }
 else{
