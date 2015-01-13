@@ -357,6 +357,10 @@ class Crypto_Gateway extends Model
 			}
 		}
 		
+		if($biggestInput == $this->source_address OR $biggestInput == $this->watch_address){
+			return false; //probably change getting sent back to itself from moving funds, just ignore!
+		}
+		
 		return $biggestInput;
 	}
 	
