@@ -16,6 +16,7 @@ class Crypto_Gateway extends Model
 	public $inflatable_tokens = array(); //list of tokens which can be auto-issued
 	public $source_pubkey = false; //leave false to auto attempt to get the pubkey of the source address
 	public $gateway_title = false;
+	public $min_amount = 0;
 	
 	private $token_info = false; //stores info such as divisibility etc. of main source token
 	private $accepted_info = array(); //stores any info for tokens being accepted for gateway
@@ -145,7 +146,7 @@ class Crypto_Gateway extends Model
 			//check accepted token info
 			foreach($this->accepted as $token => $rate){
 				if(is_array($rate)){
-					$rate = $this->getLatestRate($rate);
+					$rate = $this->getLatestRate($rate, $token);
 				}
 				if($rate <= 0){
 					throw new Exception($token." exchange rate must be > 0");
@@ -209,8 +210,15 @@ class Crypto_Gateway extends Model
 		}
 												
 		//loop through and process transaction list
+		$grouped = array();
 		foreach($getSends as $send){
 			if($send['status'] == 'valid' AND isset($accepted[$send['asset']])){
+				
+				$asset = $send['asset'];
+				$rate = $accepted[$asset];
+				if(is_array($rate)){
+					$rate = $this->getLatestRate($rate, $asset);
+				}					
 				
 				//check if this transaction has been seen before
 				$checkTx = $this->getAll('transactions', array('type' => 'gateway_receive',
@@ -221,31 +229,47 @@ class Crypto_Gateway extends Model
 					continue;
 				}
 				
-				//prep info for list of pending sends
-				$asset = $send['asset'];
-				$rate = $accepted[$asset];
-				if(is_array($rate)){
-					$rate = $this->getLatestRate($rate);
-				}				
+				if(!isset($grouped[$send['source']])){
+					$grouped[$send['source']] = array();
+				}
+				if(!isset($grouped[$send['source']][$send['asset']])){
+					$grouped[$send['source']][$send['asset']] = array('tx' => array(), 'total' => 0);
+				}
+
 				$quantity = $send['quantity'];
 				if($this->accepted_info[$asset]['divisible']){
 					$quantity = $quantity / SATOSHI_MOD;
-				}				
+				}						
+				
+				$send['final_quantity'] = $quantity;
+				$send['real_quantity'] = $quantity;				
+				
+				$grouped[$send['source']][$send['asset']]['tx'][] = $send;
+				$grouped[$send['source']][$send['asset']]['total'] += $quantity;
+				$groupQuantity = $grouped[$send['source']][$send['asset']]['total'];
+				
+				//prep info for list of pending sends
+			
 				$fee = 0;
 				if(!$noFee){
-					$fee = ceil(($quantity * ($this->service_fee / 100)));	
+					$fee = ceil(($groupQuantity * ($this->service_fee / 100)));	
 					if($this->accepted_info[$asset]['divisible']){
-						$fee = round(($quantity * ($this->service_fee / 100)), 8);	
+						$fee = round(($groupQuantity * ($this->service_fee / 100)), 8);	
 					}
+				}
+				$finalQuantity = $groupQuantity - $fee;
+				$send_amount = $finalQuantity * $rate;
+				
+				if($send_amount < $this->min_amount){
+					//echo "[".$this->gateway_title."] Not enough ".$send['asset']." funds from ".$send['source'].", waiting (".$groupQuantity." = ".$send_amount.")\n";
+					continue;
 				}
 
 				$item = array();
-				$send['final_quantity'] = $quantity - $fee;
-				$send['real_quantity'] = $quantity;
-				$item['income'] = $send;
+				$item['income'] = $grouped[$send['source']][$send['asset']];
 				$item['fee'] = $fee;
 				$item['send_to'] = $send['source'];
-				$item['amount'] = $send['final_quantity'] * $rate;
+				$item['amount'] = $send_amount;
 				$item['vend_token'] = $vend_token;
 				if(!$this->accepted_info[$vend_token]['divisible']){
 					$item['amount'] = floor($item['amount']);
@@ -263,7 +287,7 @@ class Crypto_Gateway extends Model
 	{
 		$sendsFound = array();
 		if(is_array($rate)){
-			$rate = $this->getLatestRate($rate);
+			$rate = $this->getLatestRate($rate, 'BTC');
 		}		
 		//also check BTC balances, just use blockr.io
 		if(!isset($this->get_api) OR !$this->get_api){
@@ -277,6 +301,7 @@ class Crypto_Gateway extends Model
 		if(!$get_api OR $get_api['code'] != 200){
 			throw new Exception('Could not get blockr.io data');
 		}
+		$grouped = array();
 		foreach($get_api['data']['txs'] as $tx){
 			if($tx['confirmations'] >= $this->min_confirms
 			AND $tx['amount'] > 0
@@ -291,22 +316,41 @@ class Crypto_Gateway extends Model
 					continue;
 				}					
 					
-				$item = array();
 				$tx['asset'] = 'BTC';
 				$tx['real_quantity'] = $tx['amount'];
 				$tx['quantity'] = round($tx['amount'] * SATOSHI_MOD);
-				$tx['destination'] = $this->watch_address;
+				
 				$fee = 0;
 				if(!$noFee){
 					$fee = round(($tx['amount'] * ($this->service_fee / 100)), 8);
 				}
 				$tx['final_amount'] = $tx['amount'] - $fee;
-				$tx['final_quantity'] = $tx['final_amount'];
+				$tx['final_quantity'] = $tx['final_amount'];	
+				$tx['destination'] = $this->watch_address;
 				$tx['tx_hash'] = $tx['tx'];
-				$item['income'] = $tx;
-				$item['send_to'] = '';
+				$source = $this->getTxInputAddress($tx['tx']);
+				if(!$source){
+					continue;
+				}
+				$tx['source'] = $source;
+				
+				if(!isset($grouped[$tx['source']])){
+					$grouped[$tx['source']] = array('tx' => array(), 'total' => 0);
+				}
+				$grouped[$tx['source']]['tx'][] = $tx;
+				$grouped[$tx['source']]['total'] += $tx['real_quantity'];
+				$groupQuantity = $grouped[$tx['source']]['total'];
+				
+				$send_amount = $rate * $groupQuantity;
+				if($send_amount < $this->min_amount){
+					//echo "[".$this->gateway_title."] Not enough BTC funds from ".$tx['source'].", waiting (".$groupQuantity." = ".$send_amount.")\n";
+					continue;
+				}
+				
+				$item = array();
 				$item['fee'] = $fee;
-				$item['amount'] = $rate * $tx['final_amount'];							
+				$item['amount'] = $send_amount;	
+				$item['income'] = $grouped[$tx['source']];
 				if(!$this->token_info['divisible']){
 					$item['amount'] = floor($item['amount']);
 				}
@@ -314,11 +358,7 @@ class Crypto_Gateway extends Model
 					$item['amount'] = round($item['amount'], 8);					
 				}			
 				
-				$item['income']['source'] = $this->getTxInputAddress($tx['tx']);
-				if(!$item['income']['source']){
-					continue;
-				}
-				$item['send_to'] = $item['income']['source'];
+				$item['send_to'] = $tx['source'];
 				$item['vend_token'] = $vend_token;
 											
 				$sendsFound[] = $item;
@@ -481,14 +521,18 @@ class Crypto_Gateway extends Model
 			
 			//save incoming/outgoing transactions
 			$time = timestamp();
-			$saveReceive = $this->insert('transactions', array('type' => 'gateway_receive',
-															   'source' => $send['income']['source'],
-															   'destination' => $this->watch_address,
-															   'amount' => $send['income']['real_quantity'],
-															   'txId' => $send['income']['tx_hash'],
-															   'confirmed' => 1,
-															   'txDate' => $time,
-															   'asset' => $send['income']['asset']));
+			foreach($send['income']['tx'] as $income){
+				$saveReceive = $this->insert('transactions', array('type' => 'gateway_receive',
+																   'source' => $income['source'],
+																   'destination' => $this->watch_address,
+																   'amount' => $income['real_quantity'],
+																   'txId' => $income['tx_hash'],
+																   'confirmed' => 1,
+																   'txDate' => $time,
+																   'asset' => $income['asset']));
+				echo $income['real_quantity'].' '.$income['asset']." received!\n";
+			}
+
 															   
 			$saveSend = $this->insert('transactions', array('type' => 'gateway_send',
 															   'source' => $this->source_address,
@@ -499,7 +543,7 @@ class Crypto_Gateway extends Model
 															   'txDate' => $time,
 															   'asset' => $send['vend_token']));
 															   
-			echo $send['income']['real_quantity'].' '.$send['income']['asset'].' received... vended '.$send['amount'].' '.$send['vend_token'].' to '.$send['send_to'].': '.$sendTX." ".timestamp()."\n";
+			echo 'Vended '.$send['amount'].' '.$send['vend_token'].' to '.$send['send_to'].': '.$sendTX." ".timestamp()."\n";
 			//wait a few seconds to avoid sending transactions too fast and causing errors
 			sleep(10);
 		}
@@ -526,7 +570,7 @@ class Crypto_Gateway extends Model
 		$firstToken = '';
 		foreach($this->accepted as $accept => $rate){
 			if(is_array($rate)){
-				$rate = $this->getLatestRate($rate);
+				$rate = $this->getLatestRate($rate, $accept);
 			}			
 			$firstRate = $rate;
 			$firstToken = $accept;
@@ -674,7 +718,7 @@ class Crypto_Gateway extends Model
 		return true;
 	}
 	
-	protected function getLatestRate($rate)
+	public function getLatestRate($rate, $token)
 	{
 		switch($rate['type']){
 			case 'fixed':
@@ -732,6 +776,20 @@ class Crypto_Gateway extends Model
 					throw new Exception('Field for '.$token.' rate not found: '.$rate['field']);
 				}
 				
+				if(isset($rate['opt'])){
+					switch($rate['opt']){
+						case 'reverse-price':
+							if($lastField > 0){
+								$lastField = 1 / $lastField;
+							}
+							break;
+					}
+				}
+				
+				if(isset($rate['modifier'])){
+					$lastField = $lastField * $rate['modifier'];
+				}
+				
 				$rate = $lastField;
 				break;
 			case 'broadcast':
@@ -750,7 +808,6 @@ class Crypto_Gateway extends Model
 				}
 				break;
 		}
-		
 		return floatval($rate);
 	}
 }

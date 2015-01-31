@@ -84,4 +84,21 @@
 			}
 			debug($assetStats);
 			break;
+		case 'rates':
+			include(SITE_BASE.'/conf/gateways.php');
+			foreach($gateways as $name => $gateway){
+				$gateway = $gateway();
+				echo 'Gateway: '.$gateway->gateway_title."\n";
+				foreach($gateway->accepted as $token => $rate){
+					if(is_array($rate)){
+						$rate = $gateway->getLatestRate($rate, $token);
+					}
+			
+					$rate = convertFloat($rate);
+					
+					echo $token.': '.$rate."\n";
+				}
+				echo "\n";
+			}
+			break;
 	}

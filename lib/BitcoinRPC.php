@@ -162,7 +162,7 @@ class BitcoinRPC {
 		if (!$this->notification) {
 			// check
 		
-			if ($response['id'] != $currentId) {
+			if (!isset($response['id']) OR $response['id'] != $currentId) {
 				debug($response);		
 				debug($request);			
 				throw new Exception('Incorrect response id (request id: '.$currentId.', response id: '.$response['id'].')');
