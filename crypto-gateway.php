@@ -20,7 +20,14 @@ if(!isset($argv[1])){
 	echo "Gateway(s) in progress \n";
 	while(true){
 		foreach($gateways as $name => $gateway){
-			$gateway->init();
+			try{
+				$gateway->init();
+			}
+			catch(Exception $e){
+				echo 'Error: '.$e->getMessage()."\n";
+				continue;
+			}
+			sleep(10);
 		}
 		//wait a few minutes before running the loop again
 		sleep(300);

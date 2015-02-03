@@ -163,13 +163,12 @@ class BitcoinRPC {
 			// check
 		
 			if (!isset($response['id']) OR $response['id'] != $currentId) {
-				debug($response);		
-				debug($request);			
-				throw new Exception('Incorrect response id (request id: '.$currentId.', response id: '.$response['id'].')');
+				if(isset($response['data'])){
+					throw new Exception('Server Error: '.$response['data']);
+				}
+				throw new Exception('Incorrect response id (request id: '.$currentId.', response id: '.@$response['id'].')');
 			}
-			if (isset($response['error']) AND !is_null($response['error'])) {
-				debug($response);
-				debug($request);	
+			if (isset($response['error']) AND !is_null($response['error'])) {	
 				throw new Exception('Request error: '.$response['error']['message']);
 			}
 			

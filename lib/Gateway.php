@@ -96,12 +96,10 @@ class Crypto_Gateway extends Model
 		//verify source/watch addresses
 		$verify = new BTCValidate;
 		if(!$verify->checkAddress($this->source_address)){
-			echo "Error: Invalid source address!\n";
-			die();
+			throw new Exception("Error: Invalid source address!\n");
 		}
 		if(!$verify->checkAddress($this->watch_address)){
-			echo "Error: Invalid watch address!\n";
-			die();
+			throw new Exception("Error: Invalid watch address!\n");
 		}
 		
 		if(!$this->source_pubkey){
@@ -114,12 +112,10 @@ class Crypto_Gateway extends Model
 				$this->source_pubkey = $validate['pubkey'];
 			}
 			catch(Exception $e){
-				echo 'Error getting source address ['.$this->source_address.'] pubkey:'. $e->getMessage()."\n";
-				die();
+				throw new Exception('Error getting source address ['.$this->source_address.'] pubkey:'. $e->getMessage()."\n");
 			}
 			if(!$this->source_pubkey){
-				echo "Could not get source address pubkey [".$this->source_address."]\n";
-				die();
+				throw new Exception("Could not get source address pubkey [".$this->source_address."]\n");
 			}
 		}
 	}
@@ -166,8 +162,7 @@ class Crypto_Gateway extends Model
 			}
 		}
 		catch(Exception $e){
-			echo "Error obtaining asset info: ".$e->getMessage()."\n";
-			die();
+			throw new Exception("Error obtaining asset info: ".$e->getMessage()."\n");
 		}		
 	}
 	
@@ -186,8 +181,7 @@ class Crypto_Gateway extends Model
 		
 		}
 		catch(Exception $e){
-			echo "Error checking watch address balances: ".$e->getMessage()." ".timestamp()."\n";
-			die();
+			throw new Exception("Error checking watch address balances: ".$e->getMessage()." ".timestamp()."\n");
 		}
 		
 		return $sendsFound;		
@@ -429,16 +423,14 @@ class Crypto_Gateway extends Model
 			}
 		}
 		catch(Exception $e){
-			echo 'Error getting balances: '.$e->getMessage()." ".timestamp()."\n";
-			die();
+			throw new Exception('Error getting balances: '.$e->getMessage()." ".timestamp()."\n");
 		}
 		
 		foreach($vendingTokens as $vendAsset => $vendAmount){
 			
 			if($vendAsset == 'BTC'){
 				if($btc_balance < $vendAmount){
-					echo "Insufficient balance for ".$vendAsset." (need ".convertFloat($vendAmount).") ".timestamp()."\n";
-					die();
+					throw new Exception("Insufficient balance for ".$vendAsset." (need ".convertFloat($vendAmount).") ".timestamp()."\n");
 				}
 			}
 			else{
@@ -460,8 +452,7 @@ class Crypto_Gateway extends Model
 								$this->autoInflateToken($vendAsset, $needed);
 								return array();
 							}
-							echo "Insufficient balance for ".$vendAsset." (need ".convertFloat($vendAmount).") ".timestamp()."\n";
-							die();
+							throw new Exception("Insufficient balance for ".$vendAsset." (need ".convertFloat($vendAmount).") ".timestamp()."\n");
 						}
 					}
 				}
@@ -480,25 +471,33 @@ class Crypto_Gateway extends Model
 			$this->btc->walletpassphrase(XCP_WALLET, 300);
 		}
 		catch(Exception $e){
-			echo "Could not unlock wallet: ".$e->getMessage()." ".timestamp()."\n";
-			die();
+			throw new Exception("Could not unlock wallet: ".$e->getMessage()." ".timestamp()."\n");
 		}		
 		echo "Wallet unlocked\n";
 
 		//loop through pending sends
 		foreach($sends as $send){
-			
+			$sendTX = false;
+			$refunded = false;
 			try{
 				switch($send['vend_token']){
 					case 'BTC':
 						echo "Sending BTC TX\n";
-						$this->btc->settxfee($this->miner_fee);
-						$sendTX = $this->btc->sendfromaddress($this->source_address, $send['amount'], $send['send_to']);
+						if($send['amount'] < $this->dust_size){
+							echo "BTC TX below dust limit (".$send['amount'].")\n";
+							$this->refund($send);
+							$sendTX = false;
+							$refunded = true;
+						}
+						else{
+							$this->btc->settxfee($this->miner_fee);
+							$sendTX = $this->btc->sendfromaddress($this->source_address, $send['amount'], $send['send_to']);
+						}
 						break;
 					default:
 						echo "Sending XCP TX\n";
 						//send out counterparty tokens
-						$quantity = round($send['amount'] * SATOSHI_MOD);
+						$quantity = (int)round(round($send['amount'], 8) * SATOSHI_MOD);
 						$sendData = array('source' => $this->source_address, 'destination' => $send['send_to'],
 										  'asset' => $send['vend_token'], 'quantity' => $quantity, 'allow_unconfirmed_inputs' => true,
 										  'pubkey' => $this->source_pubkey,
@@ -514,36 +513,39 @@ class Crypto_Gateway extends Model
 				}
 			}
 			catch(Exception $e){
-				echo 'Error sending '.$send['vend_token'].': '.$e->getMessage()." ".timestamp()."\n";
-				die();
+				throw new Exception('Error sending '.$send['vend_token'].': '.$e->getMessage()." ".timestamp()."\n");
 			}			
 
 			
 			//save incoming/outgoing transactions
 			$time = timestamp();
-			foreach($send['income']['tx'] as $income){
-				$saveReceive = $this->insert('transactions', array('type' => 'gateway_receive',
-																   'source' => $income['source'],
-																   'destination' => $this->watch_address,
-																   'amount' => $income['real_quantity'],
-																   'txId' => $income['tx_hash'],
-																   'confirmed' => 1,
-																   'txDate' => $time,
-																   'asset' => $income['asset']));
-				echo $income['real_quantity'].' '.$income['asset']." received!\n";
+			if(($refunded AND !$sendTX) OR ($sendTX)){
+				foreach($send['income']['tx'] as $income){
+					$saveReceive = $this->insert('transactions', array('type' => 'gateway_receive',
+																	   'source' => $income['source'],
+																	   'destination' => $this->watch_address,
+																	   'amount' => $income['real_quantity'],
+																	   'txId' => $income['tx_hash'],
+																	   'confirmed' => 1,
+																	   'txDate' => $time,
+																	   'asset' => $income['asset']));
+					echo $income['real_quantity'].' '.$income['asset']." received!\n";
+				}
 			}
-
+			
+			if($sendTX){		   
+				$saveSend = $this->insert('transactions', array('type' => 'gateway_send',
+																   'source' => $this->source_address,
+																   'destination' => $send['send_to'],
+																   'amount' => $send['amount'],
+																   'txId' => $sendTX,
+																   'confirmed' => 0,
+																   'txDate' => $time,
+																   'asset' => $send['vend_token']));
+				echo 'Vended '.$send['amount'].' '.$send['vend_token'].' to '.$send['send_to'].': '.$sendTX." ".timestamp()."\n";																		
+			}
 															   
-			$saveSend = $this->insert('transactions', array('type' => 'gateway_send',
-															   'source' => $this->source_address,
-															   'destination' => $send['send_to'],
-															   'amount' => $send['amount'],
-															   'txId' => $sendTX,
-															   'confirmed' => 0,
-															   'txDate' => $time,
-															   'asset' => $send['vend_token']));
-															   
-			echo 'Vended '.$send['amount'].' '.$send['vend_token'].' to '.$send['send_to'].': '.$sendTX." ".timestamp()."\n";
+			
 			//wait a few seconds to avoid sending transactions too fast and causing errors
 			sleep(10);
 		}
@@ -635,8 +637,7 @@ class Crypto_Gateway extends Model
 			$this->btc->walletpassphrase(XCP_WALLET, 300);
 		}
 		catch(Exception $e){
-			echo "Could not unlock wallet: ".$e->getMessage()."\n";
-			die();
+			throw new Exception("Could not unlock wallet: ".$e->getMessage()."\n");
 		}				
 		
 		$issueData = array('source' => $this->source_address, 'quantity' => $newTokens,
@@ -809,5 +810,55 @@ class Crypto_Gateway extends Model
 				break;
 		}
 		return floatval($rate);
+	}
+	
+	public function refund($send)
+	{
+		$refunds = array();
+		$send_to = $send['send_to'];
+		foreach($send['income']['tx'] as $tx){
+			if(!isset($refunds[$tx['asset']])){
+				$refunds[$tx['asset']] = 0;
+			}
+			$refunds[$tx['asset']] += $tx['quantity'];
+		}
+		
+		foreach($refunds as $asset => $amount){
+			$sendTX = false;
+			if($asset == 'BTC'){
+				
+			}
+			else{
+				$sendData = array('source' => $this->source_address, 'destination' => $send_to,
+								  'asset' => $asset, 'quantity' => $amount, 'allow_unconfirmed_inputs' => true,
+								  'pubkey' => $this->source_pubkey,
+								  'fee' => ($this->miner_fee * SATOSHI_MOD),
+								  'regular_dust_size' => (($this->dust_size / 2) * SATOSHI_MOD),
+								  'multisig_dust_size' => (($this->dust_size / 2) * SATOSHI_MOD)
+								  );
+
+				$getRaw = $this->xcp->create_send($sendData);
+				$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
+				$sendTX = $this->xcp->broadcast_tx(array('signed_tx_hex' => $sign));
+			}
+			
+			if($sendTX){
+				$float_amount = round($amount / SATOSHI_MOD, 8);
+				$saveSend = $this->insert('transactions', array('type' => 'gateway_refund',
+																   'source' => $this->source_address,
+																   'destination' => $send_to,
+																   'amount' => $float_amount,
+																   'txId' => $sendTX,
+																   'confirmed' => 0,
+																   'txDate' => timestamp(),
+																   'asset' => $asset));
+																   
+				echo 'Refunded '.$float_amount.' '.$asset.' to '.$send_to.': '.$sendTX." ".timestamp()."\n";
+				sleep(10);
+			}	
+			else{
+				echo 'Refund failed.. '.$send_to."\n";
+			}		
+		}
 	}
 }
