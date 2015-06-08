@@ -7,6 +7,7 @@
 require_once('conf/config.php');
 include(FRAMEWORK_PATH.'/functions.php');
 
+
 if(!isset($argv[1])){
 	//load it up!
 	echo "Constructing gateway system\n";

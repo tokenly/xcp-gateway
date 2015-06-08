@@ -199,7 +199,7 @@ class BitcoinRPC {
 		}
 		
 		if($totalFound < ($amount + $fee)){
-			throw new Exception('Insufficient funds at this address (need '.(($amount + fee) - $totalFound));
+			throw new Exception('Insufficient funds at this address (need '.(($amount + $fee) - $totalFound).')');
 		}
 		
 		$rawInputs = array();

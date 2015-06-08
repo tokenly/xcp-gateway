@@ -42,6 +42,7 @@ class Crypto_Gateway extends Model
 		$this->btc = new BitcoinRPC(BTC_CONNECT);
 		$this->xcp = new BitcoinRPC(XCP_CONNECT);
 		
+		
 		//setup list of transactions to ignore
 		$getIgnore = $this->getAll('ignore_tx');
 		foreach($getIgnore as $row){
@@ -251,13 +252,24 @@ class Crypto_Gateway extends Model
 						$fee = round(($groupQuantity * ($this->service_fee / 100)), 8);	
 					}
 				}
-				$finalQuantity = $groupQuantity - $fee;
+				$finalQuantity = round($groupQuantity - $fee, 8);
 				$send_amount = $finalQuantity * $rate;
-				
 				if($send_amount < $this->min_amount){
+					$sendThreshold = 0.02;
+					$sendDiff = $this->min_amount - $send_amount;
+					$sendPercent = $sendDiff / $this->min_amount;
+					if($sendPercent <= $sendThreshold){
+						$send_amount = $this->min_amount;
+					}
+					else{
 					//echo "[".$this->gateway_title."] Not enough ".$send['asset']." funds from ".$send['source'].", waiting (".$groupQuantity." = ".$send_amount.")\n";
-					continue;
+						continue;
+					}
 				}
+
+				
+			
+				
 
 				$item = array();
 				$item['income'] = $grouped[$send['source']][$send['asset']];
@@ -299,7 +311,8 @@ class Crypto_Gateway extends Model
 		foreach($get_api['data']['txs'] as $tx){
 			if($tx['confirmations'] >= $this->min_confirms
 			AND $tx['amount'] > 0
-			AND $tx['amount_multisig'] == 0){
+			AND $tx['amount_multisig'] == 0
+			AND $tx['amount'] != 0.0000543){ //temp to filter out counterwallet transactions
 				
 				//check if this transaction has been seen before
 				$checkTx = $this->getAll('transactions', array('type' => 'gateway_receive',
@@ -439,7 +452,7 @@ class Crypto_Gateway extends Model
 					if($balance['asset'] == $vendAsset){
 						$found = true;
 						$divisible = true;
-						if(isset($this->accepted[$vendAsset])){
+						if(isset($this->accepted_info[$vendAsset])){
 							$divisible = $this->accepted_info[$vendAsset]['divisible'];
 						}
 						if($divisible){
@@ -468,7 +481,7 @@ class Crypto_Gateway extends Model
 		//unlock wallet
 		try{
 			echo "Unlocking wallet\n";
-			$this->btc->walletpassphrase(XCP_WALLET, 300);
+			$this->btc->walletpassphrase(XCP_WALLET, 10000);
 		}
 		catch(Exception $e){
 			throw new Exception("Could not unlock wallet: ".$e->getMessage()." ".timestamp()."\n");
@@ -497,7 +510,18 @@ class Crypto_Gateway extends Model
 					default:
 						echo "Sending XCP TX\n";
 						//send out counterparty tokens
-						$quantity = (int)round(round($send['amount'], 8) * SATOSHI_MOD);
+						$divisible = true;
+						if(isset($this->accepted_info[$vendAsset])){
+							$divisible = $this->accepted_info[$vendAsset]['divisible'];
+						}
+						if($divisible){
+							$quantity = (int)round(round($send['amount'], 8) * SATOSHI_MOD);
+						}
+						else{
+							$quantity = floor($send['amount']);
+						}
+						
+						
 						$sendData = array('source' => $this->source_address, 'destination' => $send['send_to'],
 										  'asset' => $send['vend_token'], 'quantity' => $quantity, 'allow_unconfirmed_inputs' => true,
 										  'pubkey' => $this->source_pubkey,
@@ -507,8 +531,8 @@ class Crypto_Gateway extends Model
 										  );
 				
 						$getRaw = $this->xcp->create_send($sendData);
-						$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
-						$sendTX = $this->xcp->broadcast_tx(array('signed_tx_hex' => $sign));
+						$sign = $this->btc->signrawtransaction($getRaw);
+						$sendTX = $this->btc->sendrawtransaction($sign['hex']);
 						break;
 				}
 			}
@@ -634,7 +658,7 @@ class Crypto_Gateway extends Model
 		}
 		
 		try{
-			$this->btc->walletpassphrase(XCP_WALLET, 300);
+			$this->btc->walletpassphrase(XCP_WALLET, 10000);
 		}
 		catch(Exception $e){
 			throw new Exception("Could not unlock wallet: ".$e->getMessage()."\n");
@@ -644,8 +668,8 @@ class Crypto_Gateway extends Model
 						   'asset' => $token, 'allow_unconfirmed_inputs' => true, 'description' => $this->accepted_info[$token]['description']);
 						   
 		$getRaw = $this->xcp->create_issuance($issueData);
-		$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
-		$sendTX = $this->xcp->broadcast_tx(array('signed_tx_hex' => $sign));						   
+		$sign = $this->btc->signrawtransaction($getRaw);
+		$sendTX = $this->btc->sendrawtransaction($sign['hex']);					   
 		
 		try{
 			$this->btc->walletlock();
@@ -838,8 +862,8 @@ class Crypto_Gateway extends Model
 								  );
 
 				$getRaw = $this->xcp->create_send($sendData);
-				$sign = $this->xcp->sign_tx(array('unsigned_tx_hex' => $getRaw));
-				$sendTX = $this->xcp->broadcast_tx(array('signed_tx_hex' => $sign));
+				$sign = $this->btc->signrawtransaction($getRaw);
+				$sendTX = $this->btc->sendrawtransaction($sign['hex']);
 			}
 			
 			if($sendTX){
